@@ -1,37 +1,130 @@
 importScripts('https://unpkg.com/dexie@3.2.3/dist/dexie.js');
-importScripts('/db.js');
-importScripts('/asp.js');
+
+const db = new Dexie('LedgerDB');
+
+db.version(1).stores({
+  events: '++event_id,timestamp,eventType,aggregateId',
+  projections: 'projection_key'
+});
+
+console.log('Database setup complete.');
+
+const App = {
+  generateUUID: function() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  },
+
+  calculateChecksum: function(payload) {
+    const str = JSON.stringify(payload);
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return hash;
+  },
+
+  _saveEvent: async function(eventType, aggregateId, payload) {
+    const event = {
+      timestamp: new Date().toISOString(),
+      eventType: eventType,
+      aggregateId: aggregateId,
+      payload: payload,
+      checksum: this.calculateChecksum(payload)
+    };
+    await db.events.add(event);
+    console.log(`Event ${eventType} saved successfully.`);
+  },
+
+  saveGroupCreatedEvent: async function(groupName, groupMembers) {
+    const aggregateId = this.generateUUID();
+    const members = groupMembers.split(',').map(m => m.trim());
+    const payload = { groupName, members };
+    await this._saveEvent('GROUP_CREATED', aggregateId, payload);
+  },
+
+  recalculateProjections: async function() {
+    const events = await db.events.orderBy('timestamp').toArray();
+    const groupListProjection = {
+      projection_key: 'group_list',
+      groups: {}
+    };
+
+    for (const event of events) {
+      if (event.eventType === 'GROUP_CREATED') {
+        groupListProjection.groups[event.aggregateId] = {
+          id: event.aggregateId,
+          name: event.payload.groupName,
+          members: event.payload.members
+        };
+      }
+    }
+    await db.projections.put(groupListProjection);
+    console.log('Projections recalculated.');
+  },
+
+  renderGroupList: async function() {
+    const projection = await db.projections.get('group_list');
+    if (!projection || Object.keys(projection.groups).length === 0) {
+      return '<div id="group-list"><p>No groups yet. Create one!</p></div>';
+    }
+
+    let cardsHtml = Object.values(projection.groups).map(group => `
+      <div class="card mb-4">
+        <header class="card-header">
+          <p class="card-header-title">${group.name}</p>
+        </header>
+        <div class="card-content">
+          <div class="content">
+            <strong>Members:</strong>
+            <ul>
+              ${group.members.map(m => `<li>${m}</li>`).join('')}
+            </ul>
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+    return `<div id="group-list">${cardsHtml}</div>`;
+  }
+};
 
 const CACHE_NAME = 'cashsplitter-cache-v1';
 const urlsToCache = [
-  '/',
-  '/index.html',
+  './',
+  'index.html',
   'https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css',
   'https://unpkg.com/htmx.org@1.9.10',
-  'https://unpkg.com/dexie@3.2.3/dist/dexie.js',
-  '/asp.js',
-  '/db.js'
+  'https://unpkg.com/dexie@3.2.3/dist/dexie.js'
 ];
 
 self.addEventListener('install', event => {
+  console.log('[SW] Install event');
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => {
-        console.log('Opened cache');
+        console.log('[SW] Caching assets');
         return cache.addAll(urlsToCache);
       })
   );
 });
 
 self.addEventListener('activate', event => {
-  console.log('ServiceWorker activated');
+  console.log('[SW] Activate event');
   event.waitUntil(clients.claim());
 });
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
+  console.log(`[SW] Fetching: ${url.pathname}`);
 
-  if (url.pathname.startsWith('/api/')) {
+  if (url.pathname.includes('/api/')) {
+    console.log('[SW] API request detected, handling...');
     event.respondWith(handleApiRequest(event));
   } else {
     event.respondWith(
@@ -46,13 +139,13 @@ async function handleApiRequest(event) {
   const url = new URL(event.request.url);
 
   try {
-    if (url.pathname === '/api/fragment/group-list' && event.request.method === 'GET') {
+    if (url.pathname.endsWith('/api/fragment/group-list') && event.request.method === 'GET') {
       await App.recalculateProjections(); // Ensure projections are up to date
       const fragment = await App.renderGroupList();
       return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
     }
 
-    if (url.pathname === '/api/groups' && event.request.method === 'POST') {
+    if (url.pathname.endsWith('/api/groups') && event.request.method === 'POST') {
       const formData = await event.request.formData();
       const groupName = formData.get('groupName');
       const groupMembers = formData.get('groupMembers');
