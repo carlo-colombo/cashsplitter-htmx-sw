@@ -19,16 +19,82 @@
       </p>
     </div>
   </section>
-  <script src="asp.js"></script>
+
+  <main id="app-content" class="container">
+    <div id="group-list" hx-get="/api/fragment/group-list" hx-trigger="load-groups from:body">
+      <!-- Initial group list will be loaded here by HTMX -->
+    </div>
+  </main>
+
+  <button class="button is-primary is-fab" onclick="document.getElementById('new-group-modal').classList.add('is-active')">
+    +
+  </button>
+
+  <div id="new-group-modal" class="modal">
+    <div class="modal-background" onclick="document.getElementById('new-group-modal').classList.remove('is-active')"></div>
+    <div class="modal-card">
+      <header class="modal-card-head">
+        <p class="modal-card-title">New Group</p>
+        <button class="delete" aria-label="close" onclick="document.getElementById('new-group-modal').classList.remove('is-active')"></button>
+      </header>
+      <section class="modal-card-body">
+        <form id="new-group-form" hx-post="/api/groups" hx-target="#group-list" hx-swap="outerHTML" hx-on::after-request="this.closest('.modal').classList.remove('is-active'); this.reset()">
+          <div class="field">
+            <label class="label">Group Name</label>
+            <div class="control">
+              <input class="input" type="text" name="groupName" placeholder="e.g., Holiday Trip" required>
+            </div>
+          </div>
+          <div class="field">
+            <label class="label">Group Members</label>
+            <div class="control">
+              <input class="input" type="text" name="groupMembers" placeholder="Comma-separated names" required>
+            </div>
+          </div>
+        </form>
+      </section>
+      <footer class="modal-card-foot">
+        <button class="button is-success" onclick="document.getElementById('new-group-form').dispatchEvent(new Event('submit', { bubbles: true }))">Save changes</button>
+        <button class="button" onclick="document.getElementById('new-group-modal').classList.remove('is-active')">Cancel</button>
+      </footer>
+    </div>
+  </div>
+
+  <style>
+    .is-fab {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      border-radius: 50%;
+      width: 4rem;
+      height: 4rem;
+      font-size: 1.5rem;
+    }
+  </style>
+
   <script src="db.js"></script>
+  <script src="asp.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').then(registration => {
-          console.log('ServiceWorker registration successful with scope: ', registration.scope);
-        }, err => {
-          console.log('ServiceWorker registration failed: ', err);
-        });
+        const wasReloaded = sessionStorage.getItem('sw_reloaded');
+        sessionStorage.removeItem('sw_reloaded');
+
+        if (!navigator.serviceWorker.controller && !wasReloaded) {
+          navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(() => {
+            console.log('ServiceWorker registered. Reloading page to activate.');
+            sessionStorage.setItem('sw_reloaded', 'true');
+            window.location.reload();
+          }).catch(err => {
+            console.log('ServiceWorker registration failed: ', err);
+          });
+        } else if (navigator.serviceWorker.controller) {
+          console.log('ServiceWorker is active. Triggering group list load.');
+          // Dispatch a custom event to trigger the hx-get.
+          htmx.trigger(document.body, 'load-groups');
+        } else {
+          console.error('ServiceWorker failed to take control after reload.');
+        }
       });
     }
   </script>
