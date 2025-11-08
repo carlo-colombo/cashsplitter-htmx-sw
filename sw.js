@@ -47,6 +47,10 @@ const App = {
     await this._saveEvent('GROUP_CREATED', aggregateId, payload);
   },
 
+  saveGroupDeletedEvent: async function(groupId) {
+    await this._saveEvent('GROUP_DELETED', groupId, {});
+  },
+
   recalculateProjections: async function() {
     const events = await db.events.orderBy('timestamp').toArray();
     const groupListProjection = {
@@ -61,6 +65,8 @@ const App = {
           name: event.payload.name,
           members: event.payload.members
         };
+      } else if (event.eventType === 'GROUP_DELETED') {
+        delete groupListProjection.groups[event.aggregateId];
       }
     }
     await db.projections.put(groupListProjection);
@@ -77,6 +83,9 @@ const App = {
       <div class="card mb-4">
         <header class="card-header">
           <p class="card-header-title">${group.name}</p>
+          <button class="button is-danger is-small card-header-icon" hx-delete="api/groups/${group.id}" hx-target="#group-list" hx-swap="outerHTML" hx-confirm="Are you sure you want to delete this group?">
+            Delete
+          </button>
         </header>
         <div class="card-content">
           <div class="content">
@@ -155,6 +164,15 @@ async function handleApiRequest(event) {
 
       const fragment = await App.renderGroupList();
       return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
+    }
+
+    const groupDeleteMatch = url.pathname.match(/\/api\/groups\/(.*)/);
+    if (groupDeleteMatch && event.request.method === 'DELETE') {
+      const groupId = groupDeleteMatch[1];
+      await App.saveGroupDeletedEvent(groupId);
+      await App.recalculateProjections();
+      const fragment = await App.renderGroupList();
+      return new Response(fragment, { headers: { 'Content-Type': 'text/html' }});
     }
 
     return new Response('Not Found', { status: 404 });
