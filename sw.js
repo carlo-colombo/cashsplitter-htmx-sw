@@ -43,7 +43,7 @@ const App = {
   saveGroupCreatedEvent: async function(groupName, groupMembers) {
     const aggregateId = this.generateUUID();
     const members = groupMembers.split(',').map(m => m.trim());
-    const payload = { groupName, members };
+    const payload = { name: groupName, members };
     await this._saveEvent('GROUP_CREATED', aggregateId, payload);
   },
 
@@ -58,7 +58,7 @@ const App = {
       if (event.eventType === 'GROUP_CREATED') {
         groupListProjection.groups[event.aggregateId] = {
           id: event.aggregateId,
-          name: event.payload.groupName,
+          name: event.payload.name,
           members: event.payload.members
         };
       }
