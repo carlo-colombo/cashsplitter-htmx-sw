@@ -36,9 +36,10 @@ def test_see_details(page: Page):
     modal.get_by_placeholder("Comma-separated names").fill("Charlie, David")
     modal.get_by_role("button", name="Save changes").click()
     page.get_by_role("link", name="Details Test").click()
-    expect(page.get_by_text("Group Details")).to_be_visible()
-    expect(page.get_by_text("Charlie")).to_be_visible()
-    expect(page.get_by_text("David")).to_be_visible()
+    expect(page.locator(".card-header-title", has_text="Balances")).to_be_visible()
+    expect(page.get_by_role("button", name="Add Expense")).to_be_visible()
+    expect(page.locator("#group-detail .content ul").get_by_text("Charlie")).to_be_visible()
+    expect(page.locator("#group-detail .content ul").get_by_text("David")).to_be_visible()
 
 def test_delete_group(page: Page):
     wait_for_app_ready(page)
