@@ -53,26 +53,162 @@ const App = {
     await this._saveEvent('GROUP_DELETED', groupId, {});
   },
 
+  saveExpenseAddedEvent: async function(groupId, amountCents, payerId, beneficiaryIds) {
+    const postings = this.createExpenseTransaction(amountCents, payerId, beneficiaryIds);
+    if (postings.length === 0) {
+      console.log('No beneficiaries, skipping event creation.');
+      return;
+    }
+    const payload = {
+      amount: amountCents,
+      payer: payerId,
+      beneficiaries: beneficiaryIds,
+      postings: postings
+    };
+    await this._saveEvent('EXPENSE_ADDED', groupId, payload);
+  },
+
+  createExpenseTransaction: function(amountCents, payerId, beneficiaryIds) {
+    const numBeneficiaries = beneficiaryIds.length;
+    if (numBeneficiaries === 0) {
+      return [];
+    }
+    const share = Math.floor(amountCents / numBeneficiaries);
+    let remainder = amountCents % numBeneficiaries;
+
+    const postings = [];
+
+    // Credit the payer's asset account
+    postings.push({ account: `Assets:Debtors:${payerId}`, credit: amountCents, debit: 0 });
+
+    // Debit the beneficiaries' liability accounts
+    const beneficiaryShares = beneficiaryIds.map(() => share);
+    for (let i = 0; i < remainder; i++) {
+        beneficiaryShares[beneficiaryShares.length - 1 - i]++;
+    }
+
+    beneficiaryIds.forEach((beneficiaryId, index) => {
+        postings.push({ account: `Liabilities:Creditors:${beneficiaryId}`, debit: beneficiaryShares[index], credit: 0 });
+    });
+
+    // Balance the transaction through a clearing account
+    postings.push({ account: 'Expenses:Clearing', debit: amountCents, credit: 0 });
+    postings.push({ account: 'Expenses:Clearing', credit: amountCents, debit: 0 });
+
+
+    const totalDebits = postings.reduce((sum, p) => sum + p.debit, 0);
+    const totalCredits = postings.reduce((sum, p) => sum + p.credit, 0);
+    if (totalDebits !== totalCredits) {
+        throw new Error('Ledger transaction is not balanced!');
+    }
+
+    return postings;
+  },
+
+  renderBalances: async function(groupId) {
+    const groupListProjection = await db.projections.get('group_list');
+    const group = groupListProjection.groups[groupId];
+    if (!group) {
+        return '<p>Group not found.</p>';
+    }
+
+    const balanceProjection = await db.projections.get(`group_balances_${groupId}`);
+    if (!balanceProjection || !balanceProjection.balances) {
+      return '<p>No balances calculated yet.</p>';
+    }
+
+    const formatter = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
+
+    let balancesHtml = Object.entries(balanceProjection.balances).map(([memberId, balance]) => {
+      const memberName = group.members[memberId];
+      const netBalance = balance.net;
+      const formattedBalance = formatter.format(netBalance / 100);
+      const balanceClass = netBalance < 0 ? 'has-text-danger' : 'has-text-success';
+
+      let text;
+      if (netBalance > 0) {
+        text = `${memberName} is owed ${formattedBalance}`;
+      } else if (netBalance < 0) {
+        text = `${memberName} owes ${formatter.format(Math.abs(netBalance / 100))}`;
+      } else {
+        text = `${memberName} is settled up`;
+      }
+
+      return `<div class="balance-item ${balanceClass}">${text}</div>`;
+    }).join('');
+
+    return `<div id="balances-summary" class="content">${balancesHtml}</div>`;
+  },
+
   recalculateProjections: async function() {
     const events = await db.events.orderBy('timestamp').toArray();
-    const groupListProjection = {
-      projection_key: 'group_list',
-      groups: {}
+    const projections = {
+      group_list: { projection_key: 'group_list', groups: {} },
+    };
+
+    const initializeGroupBalances = (group) => {
+        const balances = {};
+        group.members.forEach((_, index) => {
+            balances[index] = { assets: 0, liabilities: 0, net: 0 };
+        });
+        return { projection_key: `group_balances_${group.id}`, balances };
     };
 
     for (const event of events) {
-      if (event.eventType === 'GROUP_CREATED') {
-        groupListProjection.groups[event.aggregateId] = {
-          id: event.aggregateId,
-          name: event.payload.name,
-          members: event.payload.members
-        };
-      } else if (event.eventType === 'GROUP_DELETED') {
-        delete groupListProjection.groups[event.aggregateId];
-      }
+        const groupId = event.aggregateId;
+
+        if (event.eventType === 'GROUP_CREATED') {
+            const group = {
+                id: groupId,
+                name: event.payload.name,
+                members: event.payload.members
+            };
+            projections.group_list.groups[groupId] = group;
+            projections[`group_balances_${groupId}`] = initializeGroupBalances(group);
+        } else if (event.eventType === 'GROUP_DELETED') {
+            delete projections.group_list.groups[groupId];
+            delete projections[`group_balances_${groupId}`]; // Also delete balance projection
+        } else if (event.eventType === 'EXPENSE_ADDED') {
+            const balanceProjection = projections[`group_balances_${groupId}`];
+            if (balanceProjection) {
+                for (const posting of event.payload.postings) {
+                    const [accountType, _, memberIdStr] = posting.account.split(':');
+                    const memberId = parseInt(memberIdStr, 10);
+
+                    // Ensure member balance object exists
+                    if (!balanceProjection.balances[memberId]) {
+                         balanceProjection.balances[memberId] = { assets: 0, liabilities: 0, net: 0 };
+                    }
+
+                    if (accountType === 'Assets') {
+                        balanceProjection.balances[memberId].assets += posting.credit - posting.debit;
+                    } else if (accountType === 'Liabilities') {
+                        balanceProjection.balances[memberId].liabilities += posting.debit - posting.credit;
+                    }
+                }
+            }
+        }
     }
-    await db.projections.put(groupListProjection);
-    console.log('Projections recalculated.');
+
+    // Final pass to calculate net balances
+    for (const key in projections) {
+        if (key.startsWith('group_balances_')) {
+            const balanceProjection = projections[key];
+            for (const memberId in balanceProjection.balances) {
+                const b = balanceProjection.balances[memberId];
+                b.net = b.assets - b.liabilities;
+            }
+        }
+    }
+
+    // Atomically update all projections
+    await db.transaction('rw', db.projections, async () => {
+        await db.projections.clear();
+        const allProjections = Object.values(projections);
+        await db.projections.bulkPut(allProjections);
+    });
+
+    console.log('All projections recalculated.');
   },
 
   renderGroupList: async function() {
@@ -115,16 +251,81 @@ const App = {
       return '<p>Group not found.</p>';
     }
 
+    const membersOptions = group.members.map((member, index) => `<option value="${index}">${member}</option>`).join('');
+    const membersCheckboxes = group.members.map((member, index) => `
+      <label class="checkbox">
+        <input type="checkbox" name="beneficiaries" value="${index}" checked>
+        ${member}
+      </label>
+    `).join('<br>');
+
     return `
       <div id="group-detail">
-        <h1 class="title">Group Details</h1>
         <a href="?route=group-list" hx-get="?route=group-list" hx-target="#app-content" hx-swap="innerHTML" hx-push-url="true" class="is-link">← Back to Groups</a>
-        <h2 class="title mt-4">${group.name}</h2>
-        <div class="content">
+        <div class="is-flex is-justify-content-space-between is-align-items-center mt-4">
+          <h2 class="title">${group.name}</h2>
+          <button class="button is-primary" onclick="document.getElementById('add-expense-modal').classList.add('is-active')">
+            Add Expense
+          </button>
+        </div>
+
+        <div class="card mt-4">
+          <header class="card-header">
+            <p class="card-header-title">Balances</p>
+          </header>
+          <div class="card-content">
+            <div id="balances-summary" class="content" hx-get="?route=group-balances&id=${groupId}" hx-trigger="load">
+              <!-- Balances will be loaded here -->
+              <p>Loading balances...</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="content mt-4">
           <strong>Members:</strong>
           <ul>
             ${group.members.map(m => `<li>${m}</li>`).join('')}
           </ul>
+        </div>
+      </div>
+
+      <div id="add-expense-modal" class="modal">
+        <div class="modal-background" onclick="document.getElementById('add-expense-modal').classList.remove('is-active')"></div>
+        <div class="modal-card">
+          <header class="modal-card-head">
+            <p class="modal-card-title">Add New Expense</p>
+            <button class="delete" aria-label="close" onclick="document.getElementById('add-expense-modal').classList.remove('is-active')"></button>
+          </header>
+          <section class="modal-card-body">
+            <form id="add-expense-form" hx-post="/api/groups/${groupId}/expenses" hx-target="#balances-summary" hx-swap="innerHTML" hx-on::after-request="this.closest('.modal').classList.remove('is-active'); this.reset()">
+              <div class="field">
+                <label class="label">Amount (€)</label>
+                <div class="control">
+                  <input class="input" type="number" name="amount" placeholder="e.g., 25.50" step="0.01" min="0.01" required>
+                </div>
+              </div>
+              <div class="field">
+                <label class="label">Paid by</label>
+                <div class="control">
+                  <div class="select is-fullwidth">
+                    <select name="payer">
+                      ${membersOptions}
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div class="field">
+                <label class="label">For (Beneficiaries)</label>
+                <div class="control">
+                  ${membersCheckboxes}
+                </div>
+              </div>
+            </form>
+          </section>
+          <footer class="modal-card-foot">
+            <button class="button is-success" onclick="document.getElementById('add-expense-form').dispatchEvent(new Event('submit', { bubbles: true }))">Save Expense</button>
+            <button class="button" onclick="document.getElementById('add-expense-modal').classList.remove('is-active')">Cancel</button>
+          </footer>
         </div>
       </div>
     `;
@@ -206,6 +407,12 @@ async function handleFragmentRequest(event) {
             return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
         }
 
+        if (route === 'group-balances') {
+            const groupId = url.searchParams.get('id');
+            const fragment = await App.renderBalances(groupId);
+            return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
+        }
+
         return new Response('Not Found', { status: 404 });
     } catch (error) {
         console.error(`Error rendering fragment for ${event.request.url}:`, error);
@@ -228,12 +435,27 @@ async function handleActionRequest(event) {
             return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
         }
 
-        const groupDeleteMatch = url.pathname.match(/\/api\/groups\/(.*)/);
+        const groupDeleteMatch = url.pathname.match(/\/api\/groups\/(?!.*\/expenses)(.*)/);
         if (groupDeleteMatch && event.request.method === 'DELETE') {
             const groupId = groupDeleteMatch[1];
             await App.saveGroupDeletedEvent(groupId);
             await App.recalculateProjections();
             const fragment = await App.renderGroupList();
+            return new Response(fragment, { headers: { 'Content-Type': 'text/html' }});
+        }
+
+        const expenseAddMatch = url.pathname.match(/\/api\/groups\/(.*)\/expenses/);
+        if (expenseAddMatch && event.request.method === 'POST') {
+            const groupId = expenseAddMatch[1];
+            const formData = await event.request.formData();
+            const amount = parseFloat(formData.get('amount'));
+            const amountCents = Math.round(amount * 100);
+            const payerId = parseInt(formData.get('payer'), 10);
+            const beneficiaryIds = formData.getAll('beneficiaries').map(id => parseInt(id, 10));
+
+            await App.saveExpenseAddedEvent(groupId, amountCents, payerId, beneficiaryIds);
+            await App.recalculateProjections();
+            const fragment = await App.renderBalances(groupId);
             return new Response(fragment, { headers: { 'Content-Type': 'text/html' }});
         }
 
