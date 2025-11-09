@@ -83,7 +83,11 @@ const App = {
     let cardsHtml = Object.values(projection.groups).map(group => `
       <div class="card mb-4">
         <header class="card-header">
-          <p class="card-header-title">${group.name}</p>
+          <p class="card-header-title">
+            <a href="#" hx-get="api/fragment/group-detail/${group.id}" hx-target="#app-content" hx-swap="innerHTML">
+              ${group.name}
+            </a>
+          </p>
           <button class="button is-danger is-small card-header-icon" hx-delete="api/groups/${group.id}" hx-target="#group-list" hx-swap="outerHTML" hx-confirm="Are you sure you want to delete this group?">
             Delete
           </button>
@@ -112,6 +116,7 @@ const App = {
 
     return `
       <div id="group-detail">
+        <h1 class="title">Group Details</h1>
         <a href="#" hx-get="api/fragment/group-list" hx-target="#app-content" hx-swap="innerHTML" class="is-link">← Back to Groups</a>
         <h2 class="title mt-4">${group.name}</h2>
         <div class="content">
@@ -182,13 +187,10 @@ async function handleApiRequest(event) {
       const groupName = formData.get('groupName');
       const groupMembers = formData.get('groupMembers');
 
-      const newGroupId = await App.saveGroupCreatedEvent(groupName, groupMembers);
+      await App.saveGroupCreatedEvent(groupName, groupMembers);
       await App.recalculateProjections();
-
-      return new Response(null, {
-        status: 204,
-        headers: { 'HX-Redirect': `api/fragment/group-detail/${newGroupId}` }
-      });
+      const fragment = await App.renderGroupList();
+      return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
     }
 
     const groupDetailMatch = url.pathname.match(/\/api\/fragment\/group-detail\/(.*)/);
