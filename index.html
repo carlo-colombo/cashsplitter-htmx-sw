@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html>
   <head>
@@ -21,7 +22,7 @@
   </section>
 
   <main id="app-content" class="container">
-    <div id="group-list" hx-get="api/fragment/group-list" hx-trigger="load-groups from:body">
+    <div id="group-list" hx-get="?route=group-list" hx-trigger="load-groups from:body">
       <!-- Initial group list will be loaded here by HTMX -->
     </div>
   </main>
@@ -38,7 +39,7 @@
         <button class="delete" aria-label="close" onclick="document.getElementById('new-group-modal').classList.remove('is-active')"></button>
       </header>
       <section class="modal-card-body">
-        <form id="new-group-form" hx-post="api/groups" hx-target="#group-list" hx-swap="outerHTML" hx-on::after-request="this.closest('.modal').classList.remove('is-active'); this.reset()">
+        <form id="new-group-form" hx-post="/api/groups" hx-target="#app-content" hx-swap="innerHTML" hx-on::after-request="this.closest('.modal').classList.remove('is-active'); this.reset()">
           <div class="field">
             <label class="label">Group Name</label>
             <div class="control">
@@ -86,7 +87,19 @@
             // On subsequent loads, the SW should be active. Clean up the flag.
             sessionStorage.removeItem('sw_reloaded');
             console.log('Service worker is active or reload has occurred. Loading content.');
-            htmx.trigger(document.body, 'load-groups');
+            const urlParams = new URLSearchParams(window.location.search);
+            const route = urlParams.get('route');
+            const groupId = urlParams.get('id');
+
+            const appContent = document.getElementById('app-content');
+            if (route === 'group-detail' && groupId) {
+              appContent.setAttribute('hx-get', `?route=group-detail&id=${groupId}`);
+              appContent.setAttribute('hx-trigger', 'load');
+              htmx.process(appContent);
+              appContent.dispatchEvent(new Event('load'));
+            } else {
+              htmx.trigger(document.body, 'load-groups');
+            }
           }
         }).catch(err => {
             console.error('Service Worker registration failed:', err);

@@ -1,3 +1,4 @@
+
 importScripts('https://unpkg.com/dexie@3.2.3/dist/dexie.js');
 
 const db = new Dexie('LedgerDB');
@@ -84,11 +85,11 @@ const App = {
       <div class="card mb-4">
         <header class="card-header">
           <p class="card-header-title">
-            <a href="#" hx-get="api/fragment/group-detail/${group.id}" hx-target="#app-content" hx-swap="innerHTML">
+            <a href="?route=group-detail&id=${group.id}" hx-get="?route=group-detail&id=${group.id}" hx-target="#app-content" hx-swap="innerHTML" hx-push-url="true">
               ${group.name}
             </a>
           </p>
-          <button class="button is-danger is-small card-header-icon" hx-delete="api/groups/${group.id}" hx-target="#group-list" hx-swap="outerHTML" hx-confirm="Are you sure you want to delete this group?">
+          <button class="button is-danger is-small card-header-icon" hx-delete="/api/groups/${group.id}" hx-target="#app-content" hx-swap="innerHTML" hx-confirm="Are you sure you want to delete this group?">
             Delete
           </button>
         </header>
@@ -117,7 +118,7 @@ const App = {
     return `
       <div id="group-detail">
         <h1 class="title">Group Details</h1>
-        <a href="#" hx-get="api/fragment/group-list" hx-target="#app-content" hx-swap="innerHTML" class="is-link">← Back to Groups</a>
+        <a href="?route=group-list" hx-get="?route=group-list" hx-target="#app-content" hx-swap="innerHTML" hx-push-url="true" class="is-link">← Back to Groups</a>
         <h2 class="title mt-4">${group.name}</h2>
         <div class="content">
           <strong>Members:</strong>
@@ -157,61 +158,82 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
-  console.log(`[SW] Fetching: ${url.pathname}`);
-
-  if (url.pathname.includes('/api/')) {
-    console.log('[SW] API request detected, handling...');
-    event.respondWith(handleApiRequest(event));
-  } else {
-    event.respondWith(
-      caches.match(event.request).then(response => {
-        return response || fetch(event.request);
-      })
-    );
-  }
+    event.respondWith(handleFetch(event));
 });
 
-async function handleApiRequest(event) {
-  const url = new URL(event.request.url);
+async function handleFetch(event) {
+    const url = new URL(event.request.url);
 
-  try {
-    if (url.pathname.endsWith('/api/fragment/group-list') && event.request.method === 'GET') {
-      await App.recalculateProjections(); // Ensure projections are up to date
-      const fragment = await App.renderGroupList();
-      return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
+    if (url.pathname.startsWith('/api/')) {
+        return handleActionRequest(event);
     }
 
-    if (url.pathname.endsWith('/api/groups') && event.request.method === 'POST') {
-      const formData = await event.request.formData();
-      const groupName = formData.get('groupName');
-      const groupMembers = formData.get('groupMembers');
-
-      await App.saveGroupCreatedEvent(groupName, groupMembers);
-      await App.recalculateProjections();
-      const fragment = await App.renderGroupList();
-      return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
+    if (event.request.method === 'GET') {
+        const isHtmxRequest = event.request.headers.get('HX-Request') === 'true';
+        if (isHtmxRequest || url.searchParams.has('route')) {
+            return handleFragmentRequest(event);
+        } else {
+            return caches.match(event.request).then(response => {
+                return response || fetch(event.request);
+            });
+        }
     }
 
-    const groupDetailMatch = url.pathname.match(/\/api\/fragment\/group-detail\/(.*)/);
-    if (groupDetailMatch && event.request.method === 'GET') {
-      const groupId = groupDetailMatch[1];
-      const fragment = await App.renderGroupDetail(groupId);
-      return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
-    }
+    return fetch(event.request);
+}
 
-    const groupDeleteMatch = url.pathname.match(/\/api\/groups\/(.*)/);
-    if (groupDeleteMatch && event.request.method === 'DELETE') {
-      const groupId = groupDeleteMatch[1];
-      await App.saveGroupDeletedEvent(groupId);
-      await App.recalculateProjections();
-      const fragment = await App.renderGroupList();
-      return new Response(fragment, { headers: { 'Content-Type': 'text/html' }});
-    }
+async function handleFragmentRequest(event) {
+    const url = new URL(event.request.url);
+    const route = url.searchParams.get('route');
 
-    return new Response('Not Found', { status: 404 });
-  } catch (error) {
-    console.error(`Error handling ${event.request.method} ${event.request.url}:`, error);
-    return new Response('Internal Server Error', { status: 500 });
-  }
+    try {
+        if (route === 'group-list' || route === null) {
+            await App.recalculateProjections();
+            const fragment = await App.renderGroupList();
+            return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
+        }
+
+        if (route === 'group-detail') {
+            const groupId = url.searchParams.get('id');
+            await App.recalculateProjections(); // Ensure data is fresh
+            const fragment = await App.renderGroupDetail(groupId);
+            return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
+        }
+
+        return new Response('Not Found', { status: 404 });
+    } catch (error) {
+        console.error(`Error rendering fragment for ${event.request.url}:`, error);
+        return new Response('Internal Server Error', { status: 500 });
+    }
+}
+
+async function handleActionRequest(event) {
+    const url = new URL(event.request.url);
+
+    try {
+        if (url.pathname.endsWith('/api/groups') && event.request.method === 'POST') {
+            const formData = await event.request.formData();
+            const groupName = formData.get('groupName');
+            const groupMembers = formData.get('groupMembers');
+
+            await App.saveGroupCreatedEvent(groupName, groupMembers);
+            await App.recalculateProjections();
+            const fragment = await App.renderGroupList();
+            return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
+        }
+
+        const groupDeleteMatch = url.pathname.match(/\/api\/groups\/(.*)/);
+        if (groupDeleteMatch && event.request.method === 'DELETE') {
+            const groupId = groupDeleteMatch[1];
+            await App.saveGroupDeletedEvent(groupId);
+            await App.recalculateProjections();
+            const fragment = await App.renderGroupList();
+            return new Response(fragment, { headers: { 'Content-Type': 'text/html' }});
+        }
+
+        return new Response('Not Found', { status: 404 });
+    } catch (error) {
+        console.error(`Error handling action ${event.request.method} ${event.request.url}:`, error);
+        return new Response('Internal Server Error', { status: 500 });
+    }
 }
