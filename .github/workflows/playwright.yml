@@ -1,0 +1,23 @@
+name: Playwright Tests
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    - name: Install dependencies
+      run: pip install pytest-playwright
+    - name: Install Playwright browsers
+      run: playwright install --with-deps
+    - name: Run web server
+      run: python -m http.server &
+    - name: Run Playwright tests
+      run: pytest
