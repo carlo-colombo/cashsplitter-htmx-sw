@@ -53,13 +53,14 @@ const App = {
     await this._saveEvent('GROUP_DELETED', groupId, {});
   },
 
-  saveExpenseAddedEvent: async function(groupId, amountCents, payerId, beneficiaryIds) {
+  saveExpenseAddedEvent: async function(groupId, description, amountCents, payerId, beneficiaryIds) {
     const postings = this.createExpenseTransaction(amountCents, payerId, beneficiaryIds);
     if (postings.length === 0) {
       console.log('No beneficiaries, skipping event creation.');
       return;
     }
     const payload = {
+      description: description,
       amount: amountCents,
       payer: payerId,
       beneficiaries: beneficiaryIds,
@@ -151,7 +152,11 @@ const App = {
         group.members.forEach((_, index) => {
             balances[index] = { assets: 0, liabilities: 0, net: 0 };
         });
-        return { projection_key: `group_balances_${group.id}`, balances };
+        return {
+            projection_key: `group_balances_${group.id}`,
+            balances: balances,
+            expenses: []
+        };
     };
 
     for (const event of events) {
@@ -171,9 +176,21 @@ const App = {
         } else if (event.eventType === 'EXPENSE_ADDED') {
             const balanceProjection = projections[`group_balances_${groupId}`];
             if (balanceProjection) {
+                // Add expense to list
+                balanceProjection.expenses.push({
+                    description: event.payload.description,
+                    amount: event.payload.amount,
+                    payer_id: event.payload.payer
+                });
+
                 for (const posting of event.payload.postings) {
                     const [accountType, _, memberIdStr] = posting.account.split(':');
                     const memberId = parseInt(memberIdStr, 10);
+
+                    // Ignore non-member postings for balance calculation
+                    if (isNaN(memberId)) {
+                        continue;
+                    }
 
                     // Ensure member balance object exists
                     if (!balanceProjection.balances[memberId]) {
@@ -243,6 +260,32 @@ const App = {
     return `<div id="group-list">${cardsHtml}</div>`;
   },
 
+  renderExpenseList: async function(groupId) {
+    const groupListProjection = await db.projections.get('group_list');
+    const group = groupListProjection.groups[groupId];
+    const balanceProjection = await db.projections.get(`group_balances_${groupId}`);
+
+    if (!balanceProjection || !balanceProjection.expenses || balanceProjection.expenses.length === 0) {
+      return '<p>No expenses recorded yet.</p>';
+    }
+
+    const formatter = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
+
+    let expensesHtml = balanceProjection.expenses.map(expense => {
+      const payerName = group.members[expense.payer_id];
+      const formattedAmount = formatter.format(expense.amount / 100);
+      return `
+        <div class="box">
+          <p><strong>${expense.description}</strong></p>
+          <p>Amount: ${formattedAmount}</p>
+          <p>Paid by: ${payerName}</p>
+        </div>
+      `;
+    }).join('');
+
+    return `<div id="expense-list">${expensesHtml}</div>`;
+  },
+
   renderGroupDetail: async function(groupId) {
     const projection = await db.projections.get('group_list');
     const group = projection.groups[groupId];
@@ -274,9 +317,20 @@ const App = {
             <p class="card-header-title">Balances</p>
           </header>
           <div class="card-content">
-            <div id="balances-summary" class="content" hx-get="?route=group-balances&id=${groupId}" hx-trigger="load">
+            <div id="balances-summary" class="content" hx-get="?route=group-balances&id=${groupId}" hx-trigger="load, expense-added from:body">
               <!-- Balances will be loaded here -->
               <p>Loading balances...</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mt-4">
+          <header class="card-header">
+            <p class="card-header-title">Expenses</p>
+          </header>
+          <div class="card-content">
+            <div id="expense-list" class="content" hx-get="?route=expense-list&id=${groupId}" hx-trigger="load, expense-added from:body">
+              <p>Loading expenses...</p>
             </div>
           </div>
         </div>
@@ -298,6 +352,12 @@ const App = {
           </header>
           <section class="modal-card-body">
             <form id="add-expense-form" hx-post="/api/groups/${groupId}/expenses" hx-target="#balances-summary" hx-swap="innerHTML" hx-on::after-request="this.closest('.modal').classList.remove('is-active'); this.reset()">
+              <div class="field">
+                <label class="label">Description</label>
+                <div class="control">
+                  <input class="input" type="text" name="description" placeholder="e.g., Groceries" required>
+                </div>
+              </div>
               <div class="field">
                 <label class="label">Amount (€)</label>
                 <div class="control">
@@ -413,6 +473,12 @@ async function handleFragmentRequest(event) {
             return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
         }
 
+        if (route === 'expense-list') {
+            const groupId = url.searchParams.get('id');
+            const fragment = await App.renderExpenseList(groupId);
+            return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
+        }
+
         return new Response('Not Found', { status: 404 });
     } catch (error) {
         console.error(`Error rendering fragment for ${event.request.url}:`, error);
@@ -448,15 +514,17 @@ async function handleActionRequest(event) {
         if (expenseAddMatch && event.request.method === 'POST') {
             const groupId = expenseAddMatch[1];
             const formData = await event.request.formData();
+            const description = formData.get('description');
             const amount = parseFloat(formData.get('amount'));
             const amountCents = Math.round(amount * 100);
             const payerId = parseInt(formData.get('payer'), 10);
             const beneficiaryIds = formData.getAll('beneficiaries').map(id => parseInt(id, 10));
 
-            await App.saveExpenseAddedEvent(groupId, amountCents, payerId, beneficiaryIds);
+            await App.saveExpenseAddedEvent(groupId, description, amountCents, payerId, beneficiaryIds);
             await App.recalculateProjections();
-            const fragment = await App.renderBalances(groupId);
-            return new Response(fragment, { headers: { 'Content-Type': 'text/html' }});
+
+            // Trigger event for HTMX to refresh balances and expenses
+            return new Response(null, { status: 204, headers: { 'HX-Trigger': 'expense-added' } });
         }
 
         return new Response('Not Found', { status: 404 });
