@@ -38,7 +38,7 @@
         <button class="delete" aria-label="close" onclick="document.getElementById('new-group-modal').classList.remove('is-active')"></button>
       </header>
       <section class="modal-card-body">
-        <form id="new-group-form" hx-post="api/groups" hx-target="#group-list" hx-swap="outerHTML" hx-on::after-request="this.closest('.modal').classList.remove('is-active'); this.reset()">
+        <form id="new-group-form" hx-post="api/groups" hx-target="#app-content" hx-swap="innerHTML" hx-on::after-request="this.closest('.modal').classList.remove('is-active'); this.reset()">
           <div class="field">
             <label class="label">Group Name</label>
             <div class="control">

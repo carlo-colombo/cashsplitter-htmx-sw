@@ -185,10 +185,8 @@ async function handleApiRequest(event) {
       const newGroupId = await App.saveGroupCreatedEvent(groupName, groupMembers);
       await App.recalculateProjections();
 
-      return new Response(null, {
-        status: 204,
-        headers: { 'HX-Redirect': `api/fragment/group-detail/${newGroupId}` }
-      });
+      const fragment = await App.renderGroupDetail(newGroupId);
+      return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
     }
 
     const groupDetailMatch = url.pathname.match(/\/api\/fragment\/group-detail\/(.*)/);
