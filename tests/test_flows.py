@@ -57,3 +57,34 @@ def test_delete_group(page: Page):
     page.once("dialog", lambda dialog: dialog.accept())
     delete_button_locator.click()
     expect(page.get_by_text("To Delete")).not_to_be_visible()
+
+def test_add_expense(page: Page):
+    wait_for_app_ready(page)
+
+    # 1. Create a group
+    page.get_by_role("button", name="+").last.click()
+    modal = page.locator("#new-group-modal.is-active").last
+    expect(modal).to_be_visible()
+    modal.get_by_placeholder("e.g., Holiday Trip").fill("Expense Test")
+    modal.get_by_placeholder("Comma-separated names").fill("Alice, Bob, Charlie")
+    modal.get_by_role("button", name="Save changes").click()
+
+    # 2. Navigate to group detail and add expense
+    page.get_by_role("link", name="Expense Test").click()
+    page.get_by_role("button", name="Add Expense").click()
+
+    expense_modal = page.locator("#add-expense-modal.is-active").last
+    expect(expense_modal).to_be_visible()
+    expense_modal.get_by_placeholder("e.g., 25.50").fill("10")
+    expense_modal.locator('select[name="payer"]').select_option(label="Alice")
+    # Uncheck Charlie to test unequal splits
+    expense_modal.get_by_label("Charlie").uncheck()
+    expense_modal.get_by_role("button", name="Save Expense").click()
+
+    # 3. Verify balances
+    balances_summary = page.locator("#balances-summary").last
+    expect(balances_summary.get_by_text("Alice is owed")).to_be_visible()
+    expect(balances_summary.get_by_text("Bob owes")).to_be_visible()
+    expect(balances_summary.get_by_text("Charlie is settled up")).to_be_visible()
+    # This is the crucial assertion to check for the bug
+    expect(balances_summary.get_by_text("undefined")).not_to_be_visible()

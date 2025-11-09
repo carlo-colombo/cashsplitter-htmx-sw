@@ -175,15 +175,17 @@ const App = {
                     const [accountType, _, memberIdStr] = posting.account.split(':');
                     const memberId = parseInt(memberIdStr, 10);
 
-                    // Ensure member balance object exists
-                    if (!balanceProjection.balances[memberId]) {
-                         balanceProjection.balances[memberId] = { assets: 0, liabilities: 0, net: 0 };
-                    }
+                    if (!isNaN(memberId)) {
+                        // Ensure member balance object exists
+                        if (!balanceProjection.balances[memberId]) {
+                            balanceProjection.balances[memberId] = { assets: 0, liabilities: 0, net: 0 };
+                        }
 
-                    if (accountType === 'Assets') {
-                        balanceProjection.balances[memberId].assets += posting.credit - posting.debit;
-                    } else if (accountType === 'Liabilities') {
-                        balanceProjection.balances[memberId].liabilities += posting.debit - posting.credit;
+                        if (accountType === 'Assets') {
+                            balanceProjection.balances[memberId].assets += posting.credit - posting.debit;
+                        } else if (accountType === 'Liabilities') {
+                            balanceProjection.balances[memberId].liabilities += posting.debit - posting.credit;
+                        }
                     }
                 }
             }
