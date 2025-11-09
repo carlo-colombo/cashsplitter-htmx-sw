@@ -45,6 +45,7 @@ const App = {
     const members = groupMembers.split(',').map(m => m.trim());
     const payload = { name: groupName, members };
     await this._saveEvent('GROUP_CREATED', aggregateId, payload);
+    return aggregateId;
   },
 
   saveGroupDeletedEvent: async function(groupId) {
@@ -99,6 +100,28 @@ const App = {
     `).join('');
 
     return `<div id="group-list">${cardsHtml}</div>`;
+  },
+
+  renderGroupDetail: async function(groupId) {
+    const projection = await db.projections.get('group_list');
+    const group = projection.groups[groupId];
+
+    if (!group) {
+      return '<p>Group not found.</p>';
+    }
+
+    return `
+      <div id="group-detail">
+        <a href="#" hx-get="api/fragment/group-list" hx-target="#app-content" hx-swap="innerHTML" class="is-link">← Back to Groups</a>
+        <h2 class="title mt-4">${group.name}</h2>
+        <div class="content">
+          <strong>Members:</strong>
+          <ul>
+            ${group.members.map(m => `<li>${m}</li>`).join('')}
+          </ul>
+        </div>
+      </div>
+    `;
   }
 };
 
@@ -159,10 +182,19 @@ async function handleApiRequest(event) {
       const groupName = formData.get('groupName');
       const groupMembers = formData.get('groupMembers');
 
-      await App.saveGroupCreatedEvent(groupName, groupMembers);
+      const newGroupId = await App.saveGroupCreatedEvent(groupName, groupMembers);
       await App.recalculateProjections();
 
-      const fragment = await App.renderGroupList();
+      return new Response(null, {
+        status: 204,
+        headers: { 'HX-Redirect': `api/fragment/group-detail/${newGroupId}` }
+      });
+    }
+
+    const groupDetailMatch = url.pathname.match(/\/api\/fragment\/group-detail\/(.*)/);
+    if (groupDetailMatch && event.request.method === 'GET') {
+      const groupId = groupDetailMatch[1];
+      const fragment = await App.renderGroupDetail(groupId);
       return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
     }
 
