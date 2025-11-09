@@ -164,6 +164,12 @@ self.addEventListener('fetch', event => {
 async function handleFetch(event) {
     const url = new URL(event.request.url);
 
+    if (event.request.mode === 'navigate') {
+        return caches.match('index.html').then(response => {
+            return response || fetch('index.html');
+        });
+    }
+
     if (url.pathname.startsWith('/api/')) {
         return handleActionRequest(event);
     }
