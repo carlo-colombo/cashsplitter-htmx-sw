@@ -18,6 +18,8 @@ jobs:
     - name: Install Playwright browsers
       run: playwright install --with-deps
     - name: Run web server
-      run: python -m http.server &
+      run: |
+        python -m http.server &
+        sleep 5 # Wait for server to start
     - name: Run Playwright tests
       run: pytest
