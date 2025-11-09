@@ -17,9 +17,17 @@ jobs:
       run: pip install pytest-playwright
     - name: Install Playwright browsers
       run: playwright install --with-deps
-    - name: Run web server
+    - name: Run web server and wait for it
       run: |
         python -m http.server &
-        sleep 5 # Wait for server to start
+        timeout=20
+        while ! nc -z localhost 8000; do
+          sleep 1
+          timeout=$((timeout-1))
+          if [ $timeout -eq 0 ]; then
+            echo "Server did not start in time."
+            exit 1
+          fi
+        done
     - name: Run Playwright tests
       run: pytest
