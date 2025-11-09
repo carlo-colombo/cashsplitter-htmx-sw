@@ -13,16 +13,23 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
-    - name: Install uv
-      run: curl -LsSf https://astral.sh/uv/install.sh | sh
+    - name: Install uv and set up cache
+      uses: astral-sh/setup-uv@v1
+      with:
+        enable-cache: true
+    - name: Cache Playwright browsers
+      id: playwright-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles('**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-playwright-
     - name: Install dependencies
-      run: |
-        source ~/.cargo/env
-        uv sync
+      run: uv sync
     - name: Install Playwright browsers
-      run: |
-        source ~/.cargo/env
-        uv run playwright install --with-deps
+      if: steps.playwright-cache.outputs.cache-hit != 'true'
+      run: uv run playwright install --with-deps
     - name: Run web server and wait for it
       run: |
         python -m http.server &
@@ -36,6 +43,4 @@ jobs:
           fi
         done
     - name: Run Playwright tests
-      run: |
-        source ~/.cargo/env
-        uv run pytest
+      run: uv run pytest
