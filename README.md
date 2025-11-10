@@ -63,3 +63,10 @@ The project uses Playwright for end-to-end testing.
     ```bash
     uv run pytest
     ```
+
+## Contributing
+
+We welcome contributions to CashSplitter! To ensure the quality and stability of the application, please adhere to the following guidelines:
+
+*   **Test All New Features:** Any new feature or enhancement must be accompanied by corresponding tests. This helps prevent regressions and ensures the long-term maintainability of the codebase.
+*   **Follow Existing Style:** Please maintain the existing coding style and conventions.

@@ -317,7 +317,7 @@ const App = {
             <p class="card-header-title">Balances</p>
           </header>
           <div class="card-content">
-            <div id="balances-summary" class="content" hx-get="?route=group-balances&id=${groupId}" hx-trigger="load, expense-added from:body">
+            <div id="balances-summary" class="content" hx-get="?route=group-balances&id=${groupId}" hx-trigger="load, expense-added from:body" hx-swap="innerHTML" data-testid="balances-summary">
               <!-- Balances will be loaded here -->
               <p>Loading balances...</p>
             </div>
@@ -329,7 +329,7 @@ const App = {
             <p class="card-header-title">Expenses</p>
           </header>
           <div class="card-content">
-            <div id="expense-list" class="content" hx-get="?route=expense-list&id=${groupId}" hx-trigger="load, expense-added from:body">
+            <div id="expense-list" class="content" hx-get="?route=expense-list&id=${groupId}" hx-trigger="load, expense-added from:body" data-testid="expense-list">
               <p>Loading expenses...</p>
             </div>
           </div>
