@@ -8,12 +8,14 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "pytest" },
+    { name = "pytest-base-url" },
     { name = "pytest-playwright" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "pytest" },
+    { name = "pytest-base-url" },
     { name = "pytest-playwright" },
 ]
 

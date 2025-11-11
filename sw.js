@@ -375,11 +375,17 @@ const App = {
           </div>
         </div>
 
-        <div class="content mt-4">
-          <strong>Members:</strong>
-          <ul>
-            ${group.members.map(m => `<li>${m}</li>`).join('')}
-          </ul>
+        <div class="card mt-4">
+          <header class="card-header">
+            <p class="card-header-title">Members</p>
+          </header>
+          <div class="card-content">
+            <div class="content">
+              <ul>
+                ${group.members.map(m => `<li>${m}</li>`).join('')}
+              </ul>
+            </div>
+          </div>
         </div>
       </div>
 

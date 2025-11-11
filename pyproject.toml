@@ -5,4 +5,8 @@ requires-python = ">=3.11"
 dependencies = [
     "pytest",
     "pytest-playwright",
+    "pytest-base-url",
 ]
+
+[tool.pytest.ini_options]
+base_url = "http://localhost:8000"
