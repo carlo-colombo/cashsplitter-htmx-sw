@@ -60,6 +60,7 @@ const App = {
       return;
     }
     const payload = {
+      expenseId: this.generateUUID(),
       description: description,
       amount: amountCents,
       payer: payerId,
@@ -67,6 +68,10 @@ const App = {
       postings: postings
     };
     await this._saveEvent('EXPENSE_ADDED', groupId, payload);
+  },
+
+  saveExpenseDeletedEvent: async function(groupId, expenseId) {
+    await this._saveEvent('EXPENSE_DELETED', groupId, { expenseId });
   },
 
   createExpenseTransaction: function(amountCents, payerId, beneficiaryIds) {
@@ -176,8 +181,8 @@ const App = {
         } else if (event.eventType === 'EXPENSE_ADDED') {
             const balanceProjection = projections[`group_balances_${groupId}`];
             if (balanceProjection) {
-                // Add expense to list
                 balanceProjection.expenses.push({
+                    id: event.payload.expenseId,
                     description: event.payload.description,
                     amount: event.payload.amount,
                     payer_id: event.payload.payer
@@ -202,6 +207,30 @@ const App = {
                     } else if (accountType === 'Liabilities') {
                         balanceProjection.balances[memberId].liabilities += posting.debit - posting.credit;
                     }
+                }
+            }
+        } else if (event.eventType === 'EXPENSE_DELETED') {
+            const balanceProjection = projections[`group_balances_${groupId}`];
+            if (balanceProjection) {
+                const expenseIdToDelete = event.payload.expenseId;
+                const expenseEventToDelete = events.find(e => e.eventType === 'EXPENSE_ADDED' && e.payload.expenseId === expenseIdToDelete);
+
+                if (expenseEventToDelete) {
+                    // Reverse the postings
+                    for (const posting of expenseEventToDelete.payload.postings) {
+                        const [accountType, _, memberIdStr] = posting.account.split(':');
+                        const memberId = parseInt(memberIdStr, 10);
+
+                        if (isNaN(memberId)) continue;
+
+                        if (accountType === 'Assets') {
+                            balanceProjection.balances[memberId].assets -= (posting.credit - posting.debit);
+                        } else if (accountType === 'Liabilities') {
+                            balanceProjection.balances[memberId].liabilities -= (posting.debit - posting.credit);
+                        }
+                    }
+                    // Mark expense as deleted
+                    balanceProjection.expenses = balanceProjection.expenses.filter(e => e.id !== expenseIdToDelete);
                 }
             }
         }
@@ -276,9 +305,20 @@ const App = {
       const formattedAmount = formatter.format(expense.amount / 100);
       return `
         <div class="box">
-          <p><strong>${expense.description}</strong></p>
-          <p>Amount: ${formattedAmount}</p>
-          <p>Paid by: ${payerName}</p>
+          <div class="is-flex is-justify-content-space-between">
+            <div>
+              <p><strong>${expense.description}</strong></p>
+              <p>Amount: ${formattedAmount}</p>
+              <p>Paid by: ${payerName}</p>
+            </div>
+            <button class="button is-danger is-small"
+                    hx-delete="/api/groups/${groupId}/expenses/${expense.id}"
+                    hx-confirm="Are you sure you want to delete this expense?"
+                    hx-target="#expense-list"
+                    hx-swap="outerHTML">
+              Delete
+            </button>
+          </div>
         </div>
       `;
     }).join('');
@@ -508,6 +548,14 @@ async function handleActionRequest(event) {
             await App.recalculateProjections();
             const fragment = await App.renderGroupList();
             return new Response(fragment, { headers: { 'Content-Type': 'text/html' }});
+        }
+
+        const expenseDeleteMatch = url.pathname.match(/\/api\/groups\/(.*)\/expenses\/(.*)/);
+        if (expenseDeleteMatch && event.request.method === 'DELETE') {
+            const [, groupId, expenseId] = expenseDeleteMatch;
+            await App.saveExpenseDeletedEvent(groupId, expenseId);
+            await App.recalculateProjections();
+            return new Response(null, { status: 204, headers: { 'HX-Trigger': 'expense-added' } }); // Re-use trigger
         }
 
         const expenseAddMatch = url.pathname.match(/\/api\/groups\/(.*)\/expenses/);
