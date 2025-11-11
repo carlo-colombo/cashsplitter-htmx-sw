@@ -39,6 +39,31 @@ This document provides guidance for AI agents working on the CashSplitter codeba
     *   `get_by_label` can be unreliable. Prefer `get_by_placeholder` or CSS attribute selectors.
     *   Handle htmx's content swapping by targeting the last instance of an element (e.g., `.last`).
 
+## Test Coverage
+
+It is critical that all user-facing features are covered by end-to-end Playwright tests. Before submitting, ensure your changes are accompanied by corresponding tests.
+
+### Feature Checklist:
+
+*   **Group Management:**
+    *   [x] Create a new group.
+    *   [x] View group details (members, balances).
+    *   [x] Delete a group.
+    *   [ ] Edit a group (rename, add/remove members).
+*   **Expense Management:**
+    *   [ ] Add a new expense.
+    *   [ ] View expense details.
+    *   [ ] Edit an expense.
+    *   [ ] Delete an expense.
+*   **Balance Calculation:**
+    *   [ ] Verify correct balance calculation for a single expense.
+    *   [ ] Verify correct balance calculation for multiple expenses.
+    *   [ ] Verify correct handling of unequal splits.
+    *   [ ] Verify correct handling of rounding for non-divisible amounts.
+*   **Offline Functionality:**
+    *   [ ] Verify that the application is accessible offline.
+    *   [ ] Verify that actions performed offline are synced when the connection is restored.
+
 ## Running the Application and Tests
 
 *   **Running the App:**
