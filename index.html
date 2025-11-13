@@ -9,6 +9,45 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     <script src="https://unpkg.com/htmx.org@1.9.10" integrity="sha384-D1Kt99CQMDuVetoL1lrYwg5t+9QdHe7NLX/SoJYkXDFfX37iInKRy5xLSi8nO7UC" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/dexie@3.2.3/dist/dexie.js"></script>
+    <style>
+      body, .modal-card, .modal-background {
+        background-color: #fdf9e8 !important; /* Slightly yellow page */
+      }
+      h1, h2, h3, h4, h5, h6, p, a, .title, .subtitle, .label, .button, .input, .modal-card-title, .modal-card-foot .button, .footer, .content {
+        color: #4b0082 !important; /* Blu-purple pen like lines */
+      }
+
+      .button {
+        background-color: #e6e6fa !important;
+        border-color: #4b0082 !important;
+      }
+      .button.is-primary {
+        background-color: #6a5acd !important;
+        border-color: transparent !important;
+        color: #fdf9e8 !important;
+      }
+      .button.is-success {
+        background-color: #9370db !important;
+        border-color: transparent !important;
+        color: #fdf9e8 !important;
+      }
+
+      .input {
+        background-color: #fffacd !important;
+        border-color: #4b0082 !important;
+        color: #4b0082 !important;
+      }
+      .input::placeholder {
+        color: #6a5acd !important;
+      }
+
+      .modal-card-head, .modal-card-foot {
+        background-color: #f5f2e0 !important;
+        border-bottom-color: #4b0082 !important;
+        border-top-color: #4b0082 !important;
+      }
+
+    </style>
   </head>
   <body>
   <section class="section">
