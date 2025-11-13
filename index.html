@@ -151,6 +151,8 @@
               appContent.dispatchEvent(new Event('load'));
             } else {
               htmx.trigger(document.body, 'load-groups');
+              document.body.dispatchEvent(new CustomEvent('app-ready', { bubbles: true }));
+              document.body.setAttribute('data-app-ready', 'true');
             }
           }
         }).catch(err => {

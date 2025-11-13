@@ -6,16 +6,10 @@ BASE_URL = "http://localhost:8000"
 
 def wait_for_app_ready(page: Page):
     """
-    Navigates to the page and waits for the service worker to activate
-    and for the initial htmx content to load by waiting for the API response.
+    Navigates to the base URL and waits for the service worker to be active.
     """
     page.goto(BASE_URL)
-    # The page may reload on first load to activate the service worker.
-    # page.goto handles this. After the page is stable, htmx will
-    # trigger a request to load the initial group list.
-    # We wait for that response to ensure the app is ready.
-    with page.expect_response(lambda res: "?route=group-list" in res.url) as response:
-        pass # The action that triggers the request has already happened.
+    page.wait_for_function("navigator.serviceWorker.controller !== null")
 
 def test_add_and_delete_expense(page: Page):
     wait_for_app_ready(page)

@@ -53,8 +53,8 @@ const App = {
     await this._saveEvent('GROUP_DELETED', groupId, {});
   },
 
-  saveExpenseAddedEvent: async function(groupId, description, amountCents, payerId, beneficiaryIds) {
-    const postings = this.createExpenseTransaction(amountCents, payerId, beneficiaryIds);
+  saveExpenseAddedEvent: async function(groupId, description, amountCents, payerId, beneficiaries) {
+    const postings = this.createExpenseTransaction(amountCents, payerId, beneficiaries);
     if (postings.length === 0) {
       console.log('No beneficiaries, skipping event creation.');
       return;
@@ -64,7 +64,7 @@ const App = {
       description: description,
       amount: amountCents,
       payer: payerId,
-      beneficiaries: beneficiaryIds,
+      beneficiaries, // Now an array of objects
       postings: postings
     };
     await this._saveEvent('EXPENSE_ADDED', groupId, payload);
@@ -74,38 +74,32 @@ const App = {
     await this._saveEvent('EXPENSE_DELETED', groupId, { expenseId });
   },
 
-  createExpenseTransaction: function(amountCents, payerId, beneficiaryIds) {
-    const numBeneficiaries = beneficiaryIds.length;
-    if (numBeneficiaries === 0) {
+  createExpenseTransaction: function(amountCents, payerId, beneficiaries) {
+    if (!beneficiaries || beneficiaries.length === 0) {
       return [];
     }
-    const share = Math.floor(amountCents / numBeneficiaries);
-    let remainder = amountCents % numBeneficiaries;
 
-    const postings = [];
+    const totalShares = beneficiaries.reduce((sum, b) => sum + b.amount, 0);
+    const remainder = amountCents - totalShares;
 
-    // Credit the payer's asset account
-    postings.push({ account: `Assets:Debtors:${payerId}`, credit: amountCents, debit: 0 });
-
-    // Debit the beneficiaries' liability accounts
-    const beneficiaryShares = beneficiaryIds.map(() => share);
-    for (let i = 0; i < remainder; i++) {
-        beneficiaryShares[beneficiaryShares.length - 1 - i]++;
+    if (remainder !== 0) {
+      beneficiaries[beneficiaries.length - 1].amount += remainder;
     }
 
-    beneficiaryIds.forEach((beneficiaryId, index) => {
-        postings.push({ account: `Liabilities:Creditors:${beneficiaryId}`, debit: beneficiaryShares[index], credit: 0 });
+    const postings = [];
+    postings.push({ account: `Assets:Debtors:${payerId}`, credit: amountCents, debit: 0 });
+
+    beneficiaries.forEach(beneficiary => {
+      postings.push({ account: `Liabilities:Creditors:${beneficiary.id}`, debit: beneficiary.amount, credit: 0 });
     });
 
-    // Balance the transaction through a clearing account
     postings.push({ account: 'Expenses:Clearing', debit: amountCents, credit: 0 });
     postings.push({ account: 'Expenses:Clearing', credit: amountCents, debit: 0 });
-
 
     const totalDebits = postings.reduce((sum, p) => sum + p.debit, 0);
     const totalCredits = postings.reduce((sum, p) => sum + p.credit, 0);
     if (totalDebits !== totalCredits) {
-        throw new Error('Ledger transaction is not balanced!');
+        throw new Error(`Ledger transaction is not balanced! Debits: ${totalDebits}, Credits: ${totalCredits}`);
     }
 
     return postings;
@@ -147,10 +141,11 @@ const App = {
   },
 
   recalculateProjections: async function() {
-    const events = await db.events.orderBy('timestamp').toArray();
-    const projections = {
-      group_list: { projection_key: 'group_list', groups: {} },
-    };
+    return new Promise(async (resolve, reject) => {
+      const events = await db.events.orderBy('timestamp').toArray();
+      const projections = {
+        group_list: { projection_key: 'group_list', groups: {} },
+      };
 
     const initializeGroupBalances = (group) => {
         const balances = {};
@@ -247,14 +242,20 @@ const App = {
         }
     }
 
-    // Atomically update all projections
-    await db.transaction('rw', db.projections, async () => {
-        await db.projections.clear();
-        const allProjections = Object.values(projections);
-        await db.projections.bulkPut(allProjections);
+    try {
+      // Atomically update all projections
+      await db.transaction('rw', db.projections, async () => {
+          await db.projections.clear();
+          const allProjections = Object.values(projections);
+          await db.projections.bulkPut(allProjections);
+      });
+      console.log('All projections recalculated.');
+      resolve();
+    } catch (error) {
+      console.error('Projection recalculation failed:', error);
+      reject(error);
+    }
     });
-
-    console.log('All projections recalculated.');
   },
 
   renderGroupList: async function() {
@@ -398,6 +399,7 @@ const App = {
           </header>
           <section class="modal-card-body">
             <form id="add-expense-form" hx-post="/api/groups/${groupId}/expenses" hx-target="#balances-summary" hx-swap="innerHTML" hx-on::after-request="this.closest('.modal').classList.remove('is-active'); this.reset()">
+              <input type="hidden" name="split_strategy" value="equally">
               <div class="field">
                 <label class="label">Description</label>
                 <div class="control">
@@ -421,11 +423,148 @@ const App = {
                 </div>
               </div>
               <div class="field">
-                <label class="label">For (Beneficiaries)</label>
-                <div class="control">
-                  ${membersCheckboxes}
+                <label class="label">Split expense</label>
+                <div class="tabs is-boxed">
+                  <ul>
+                    <li class="is-active" data-tab="equally"><a>Equally</a></li>
+                    <li data-tab="amount"><a>By Amount</a></li>
+                    <li data-tab="percentage"><a>By Percentage</a></li>
+                    <li data-tab="quote"><a>By Quote</a></li>
+                  </ul>
+                </div>
+                <div id="split-tabs-content">
+                  <div class="tab-content is-active" id="equally-content">
+                    ${group.members.map((member, index) => `
+                      <label class="checkbox">
+                        <input type="checkbox" name="beneficiaries" value="${index}" checked>
+                        ${member}
+                      </label>
+                    `).join('<br>')}
+                  </div>
+                  <div class="tab-content" id="amount-content" style="display: none;">
+                    ${group.members.map((member, index) => `
+                      <div>
+                        <label>${member}</label>
+                        <input class="input" type="number" name="amount_${index}" placeholder="0.00" step="0.01">
+                      </div>
+                    `).join('')}
+                    <p>Total: <span id="amount-total">0.00</span></p>
+                  </div>
+                  <div class="tab-content" id="percentage-content" style="display: none;">
+                    ${group.members.map((member, index) => `
+                      <div>
+                        <label>${member}</label>
+                        <input class="input" type="number" name="percentage_${index}" placeholder="0" step="1">
+                      </div>
+                    `).join('')}
+                    <p>Total: <span id="percentage-total">0</span>%</p>
+                  </div>
+                  <div class="tab-content" id="quote-content" style="display: none;">
+                    ${group.members.map((member, index) => `
+                      <div>
+                        <label>${member}</label>
+                        <input class="input" type="number" name="quote_${index}" placeholder="1" step="1">
+                      </div>
+                    `).join('')}
+                    <p>Total shares: <span id="quote-total">0</span></p>
+                  </div>
                 </div>
               </div>
+
+              <script>
+                (function() {
+                  const modal = document.getElementById('add-expense-modal');
+                  const tabs = modal.querySelectorAll('.tabs li');
+                  const tabContents = modal.querySelectorAll('.tab-content');
+                  const amountTotalEl = modal.querySelector('#amount-total');
+                  const percentageTotalEl = modal.querySelector('#percentage-total');
+                  const quoteTotalEl = modal.querySelector('#quote-total');
+                  const amountInput = modal.querySelector('input[name="amount"]');
+                  const splitStrategyInput = modal.querySelector('input[name="split_strategy"]');
+
+                  function updateTotal(selector, totalEl, suffix = '') {
+                    let total = 0;
+                    modal.querySelectorAll(selector).forEach(input => {
+                      total += parseFloat(input.value) || 0;
+                    });
+                    totalEl.textContent = total.toFixed(2) + suffix;
+                  }
+
+                  tabs.forEach(tab => {
+                    tab.addEventListener('click', () => {
+                      tabs.forEach(t => t.classList.remove('is-active'));
+                      tab.classList.add('is-active');
+
+                      const target = tab.dataset.tab;
+                      splitStrategyInput.value = target;
+                      tabContents.forEach(content => {
+                        content.style.display = content.id === target + '-content' ? 'block' : 'none';
+                      });
+                    });
+                  });
+
+                  modal.addEventListener('input', (event) => {
+                    if (event.target.closest('#amount-content')) {
+                      updateTotal('#amount-content input', amountTotalEl);
+                    } else if (event.target.closest('#percentage-content')) {
+                      updateTotal('#percentage-content input', percentageTotalEl, '%');
+                    } else if (event.target.closest('#quote-content')) {
+                      updateTotal('#quote-content input', quoteTotalEl, ' shares');
+                    }
+                  });
+
+                  document.body.addEventListener('htmx:configRequest', function(event) {
+                    if (event.detail.elt.id === 'add-expense-form') {
+                      const strategy = splitStrategyInput.value;
+                      const amount = parseFloat(amountInput.value) * 100;
+
+                      if (strategy === 'amount') {
+                        let total = 0;
+                        modal.querySelectorAll('#amount-content input').forEach((input, index) => {
+                          const value = parseFloat(input.value) * 100 || 0;
+                          if (value > 0) {
+                            event.detail.parameters[`beneficiary_${index}_id`] = index;
+                            event.detail.parameters[`beneficiary_${index}_amount`] = value;
+                            total += value;
+                          }
+                        });
+                        if (total !== amount) {
+                          alert('Total amount does not match the sum of individual amounts.');
+                          event.preventDefault();
+                        }
+                      } else if (strategy === 'percentage') {
+                        let total = 0;
+                        modal.querySelectorAll('#percentage-content input').forEach((input, index) => {
+                          const value = parseFloat(input.value) || 0;
+                          if (value > 0) {
+                            event.detail.parameters[`beneficiary_${index}_id`] = index;
+                            event.detail.parameters[`beneficiary_${index}_amount`] = Math.round(amount * value / 100);
+                            total += value;
+                          }
+                        });
+                        if (total !== 100) {
+                          alert('Percentages must add up to 100.');
+                          event.preventDefault();
+                        }
+                      } else if (strategy === 'quote') {
+                        let totalShares = 0;
+                        modal.querySelectorAll('#quote-content input').forEach(input => {
+                          totalShares += parseFloat(input.value) || 0;
+                        });
+                        if (totalShares > 0) {
+                          modal.querySelectorAll('#quote-content input').forEach((input, index) => {
+                            const value = parseFloat(input.value) || 0;
+                            if (value > 0) {
+                              event.detail.parameters[`beneficiary_${index}_id`] = index;
+                              event.detail.parameters[`beneficiary_${index}_amount`] = Math.round(amount * value / totalShares);
+                            }
+                          });
+                        }
+                      }
+                    }
+                  });
+                })();
+              </script>
             </form>
           </section>
           <footer class="modal-card-foot">
@@ -566,19 +705,47 @@ async function handleActionRequest(event) {
 
         const expenseAddMatch = url.pathname.match(/\/api\/groups\/(.*)\/expenses/);
         if (expenseAddMatch && event.request.method === 'POST') {
-            const groupId = expenseAddMatch[1];
-            const formData = await event.request.formData();
-            const description = formData.get('description');
-            const amount = parseFloat(formData.get('amount'));
-            const amountCents = Math.round(amount * 100);
-            const payerId = parseInt(formData.get('payer'), 10);
+          const groupId = expenseAddMatch[1];
+          const formData = await event.request.formData();
+          const description = formData.get('description');
+          const amount = parseFloat(formData.get('amount'));
+          const amountCents = Math.round(amount * 100);
+          const payerId = parseInt(formData.get('payer'), 10);
+          const splitStrategy = formData.get('split_strategy');
+
+          let beneficiaries = [];
+
+          if (splitStrategy === 'equally') {
             const beneficiaryIds = formData.getAll('beneficiaries').map(id => parseInt(id, 10));
+            const numBeneficiaries = beneficiaryIds.length;
+            if (numBeneficiaries > 0) {
+                const share = Math.floor(amountCents / numBeneficiaries);
+                let remainder = amountCents % numBeneficiaries;
+                beneficiaries = beneficiaryIds.map(id => ({ id, amount: share }));
+                for (let i = 0; i < remainder; i++) {
+                    beneficiaries[beneficiaries.length - 1 - i].amount++;
+                }
+            }
+          } else {
+            const beneficiaryData = {};
+            for (const [key, value] of formData.entries()) {
+              const match = key.match(/beneficiary_(\d+)_(\w+)/);
+              if (match) {
+                const id = match[1];
+                const field = match[2];
+                if (!beneficiaryData[id]) {
+                  beneficiaryData[id] = {};
+                }
+                beneficiaryData[id][field] = value;
+              }
+            }
+            beneficiaries = Object.values(beneficiaryData).map(b => ({ id: parseInt(b.id), amount: parseInt(b.amount) }));
+          }
 
-            await App.saveExpenseAddedEvent(groupId, description, amountCents, payerId, beneficiaryIds);
-            await App.recalculateProjections();
+          await App.saveExpenseAddedEvent(groupId, description, amountCents, payerId, beneficiaries);
+          await App.recalculateProjections();
 
-            // Trigger event for HTMX to refresh balances and expenses
-            return new Response(null, { status: 204, headers: { 'HX-Trigger': 'expense-added' } });
+          return new Response(null, { status: 204, headers: { 'HX-Trigger': 'expense-added' } });
         }
 
         return new Response('Not Found', { status: 404 });
