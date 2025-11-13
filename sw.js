@@ -79,6 +79,13 @@ const App = {
       return [];
     }
 
+    const totalShares = beneficiaries.reduce((sum, b) => sum + b.amount, 0);
+    const remainder = amountCents - totalShares;
+
+    if (remainder !== 0) {
+      beneficiaries[beneficiaries.length - 1].amount += remainder;
+    }
+
     const postings = [];
     postings.push({ account: `Assets:Debtors:${payerId}`, credit: amountCents, debit: 0 });
 
@@ -91,7 +98,7 @@ const App = {
 
     const totalDebits = postings.reduce((sum, p) => sum + p.debit, 0);
     const totalCredits = postings.reduce((sum, p) => sum + p.credit, 0);
-    if (Math.abs(totalDebits - totalCredits) > 1) { // Allow for rounding errors of a cent
+    if (totalDebits !== totalCredits) {
         throw new Error(`Ledger transaction is not balanced! Debits: ${totalDebits}, Credits: ${totalCredits}`);
     }
 
@@ -134,10 +141,11 @@ const App = {
   },
 
   recalculateProjections: async function() {
-    const events = await db.events.orderBy('timestamp').toArray();
-    const projections = {
-      group_list: { projection_key: 'group_list', groups: {} },
-    };
+    return new Promise(async (resolve, reject) => {
+      const events = await db.events.orderBy('timestamp').toArray();
+      const projections = {
+        group_list: { projection_key: 'group_list', groups: {} },
+      };
 
     const initializeGroupBalances = (group) => {
         const balances = {};
@@ -234,14 +242,20 @@ const App = {
         }
     }
 
-    // Atomically update all projections
-    await db.transaction('rw', db.projections, async () => {
-        await db.projections.clear();
-        const allProjections = Object.values(projections);
-        await db.projections.bulkPut(allProjections);
+    try {
+      // Atomically update all projections
+      await db.transaction('rw', db.projections, async () => {
+          await db.projections.clear();
+          const allProjections = Object.values(projections);
+          await db.projections.bulkPut(allProjections);
+      });
+      console.log('All projections recalculated.');
+      resolve();
+    } catch (error) {
+      console.error('Projection recalculation failed:', error);
+      reject(error);
+    }
     });
-
-    console.log('All projections recalculated.');
   },
 
   renderGroupList: async function() {
@@ -498,6 +512,57 @@ const App = {
                       updateTotal('#quote-content input', quoteTotalEl, ' shares');
                     }
                   });
+
+                  document.body.addEventListener('htmx:configRequest', function(event) {
+                    if (event.detail.elt.id === 'add-expense-form') {
+                      const strategy = splitStrategyInput.value;
+                      const amount = parseFloat(amountInput.value) * 100;
+
+                      if (strategy === 'amount') {
+                        let total = 0;
+                        modal.querySelectorAll('#amount-content input').forEach((input, index) => {
+                          const value = parseFloat(input.value) * 100 || 0;
+                          if (value > 0) {
+                            event.detail.parameters[`beneficiary_${index}_id`] = index;
+                            event.detail.parameters[`beneficiary_${index}_amount`] = value;
+                            total += value;
+                          }
+                        });
+                        if (total !== amount) {
+                          alert('Total amount does not match the sum of individual amounts.');
+                          event.preventDefault();
+                        }
+                      } else if (strategy === 'percentage') {
+                        let total = 0;
+                        modal.querySelectorAll('#percentage-content input').forEach((input, index) => {
+                          const value = parseFloat(input.value) || 0;
+                          if (value > 0) {
+                            event.detail.parameters[`beneficiary_${index}_id`] = index;
+                            event.detail.parameters[`beneficiary_${index}_amount`] = Math.round(amount * value / 100);
+                            total += value;
+                          }
+                        });
+                        if (total !== 100) {
+                          alert('Percentages must add up to 100.');
+                          event.preventDefault();
+                        }
+                      } else if (strategy === 'quote') {
+                        let totalShares = 0;
+                        modal.querySelectorAll('#quote-content input').forEach(input => {
+                          totalShares += parseFloat(input.value) || 0;
+                        });
+                        if (totalShares > 0) {
+                          modal.querySelectorAll('#quote-content input').forEach((input, index) => {
+                            const value = parseFloat(input.value) || 0;
+                            if (value > 0) {
+                              event.detail.parameters[`beneficiary_${index}_id`] = index;
+                              event.detail.parameters[`beneficiary_${index}_amount`] = Math.round(amount * value / totalShares);
+                            }
+                          });
+                        }
+                      }
+                    }
+                  });
                 })();
               </script>
             </form>
@@ -654,25 +719,27 @@ async function handleActionRequest(event) {
             const beneficiaryIds = formData.getAll('beneficiaries').map(id => parseInt(id, 10));
             const numBeneficiaries = beneficiaryIds.length;
             if (numBeneficiaries > 0) {
-              const share = Math.floor(amountCents / numBeneficiaries);
-              let remainder = amountCents % numBeneficiaries;
-              beneficiaries = beneficiaryIds.map(id => ({ id, amount: share }));
-              for (let i = 0; i < remainder; i++) {
-                beneficiaries[i].amount++;
-              }
+                const share = Math.floor(amountCents / numBeneficiaries);
+                let remainder = amountCents % numBeneficiaries;
+                beneficiaries = beneficiaryIds.map(id => ({ id, amount: share }));
+                for (let i = 0; i < remainder; i++) {
+                    beneficiaries[beneficiaries.length - 1 - i].amount++;
+                }
             }
           } else {
+            const beneficiaryData = {};
             for (const [key, value] of formData.entries()) {
-              if (key.startsWith('beneficiary_')) {
-                const [_, id, field] = key.split('_');
-                let beneficiary = beneficiaries.find(b => b.id === parseInt(id));
-                if (!beneficiary) {
-                  beneficiary = { id: parseInt(id) };
-                  beneficiaries.push(beneficiary);
+              const match = key.match(/beneficiary_(\d+)_(\w+)/);
+              if (match) {
+                const id = match[1];
+                const field = match[2];
+                if (!beneficiaryData[id]) {
+                  beneficiaryData[id] = {};
                 }
-                beneficiary[field] = value;
+                beneficiaryData[id][field] = value;
               }
             }
+            beneficiaries = Object.values(beneficiaryData).map(b => ({ id: parseInt(b.id), amount: parseInt(b.amount) }));
           }
 
           await App.saveExpenseAddedEvent(groupId, description, amountCents, payerId, beneficiaries);
