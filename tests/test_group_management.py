@@ -6,10 +6,10 @@ BASE_URL = "http://localhost:8000"
 
 def wait_for_app_ready(page: Page):
     """
-    Navigates to the base URL and waits for the service worker to be active.
+    Navigates to the base URL and waits for the app to signal it's ready.
     """
     page.goto(BASE_URL)
-    page.wait_for_function("navigator.serviceWorker.controller !== null")
+    page.locator('body[data-app-ready="true"]').wait_for(timeout=10000)
 
 def test_create_group(page: Page):
     wait_for_app_ready(page)
