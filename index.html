@@ -121,7 +121,7 @@
         <strong>CashSplitter</strong> by <a href="https://carlo-colombo.github.io">Carlo Colombo</a>. Copyright 2025.
       </p>
       <p>Built with AI.</p>
-      <p><a href="#" id="clear-cache-link">Clear Cache</a></p>
+      <p><a href="#" id="clear-cache-link">Clear Cache</a> | <a href="#" id="clear-database-link">Clear Database</a></p>
     </div>
   </footer>
 
@@ -175,6 +175,20 @@
         alert('Cache cleared. The page will now reload.');
         window.location.reload();
       });
+    });
+
+    document.getElementById('clear-database-link').addEventListener('click', function(event) {
+      event.preventDefault();
+      if (confirm('Are you sure you want to delete all data? This action cannot be undone.')) {
+        const db = new Dexie('LedgerDB');
+        db.delete().then(() => {
+          alert('Database cleared. The page will now reload.');
+          window.location.reload();
+        }).catch(err => {
+          console.error('Failed to delete database:', err);
+          alert('Could not clear the database. See console for details.');
+        });
+      }
     });
   </script>
   </body>
