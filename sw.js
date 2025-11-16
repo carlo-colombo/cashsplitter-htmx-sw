@@ -181,7 +181,8 @@ const App = {
                     description: event.payload.description,
                     amount: event.payload.amount,
                     payer_id: event.payload.payer,
-                    beneficiaries: event.payload.beneficiaries
+                    beneficiaries: event.payload.beneficiaries,
+                    timestamp: event.timestamp
                 });
 
                 for (const posting of event.payload.postings) {
@@ -318,6 +319,8 @@ const App = {
         return `<p class="has-text-danger">${memberName} owes ${formattedAmount}</p>`;
       }).join('');
 
+      const formattedTimestamp = new Date(expense.timestamp).toLocaleString();
+
       return `
         <div class="box">
           <div class="is-flex is-justify-content-space-between">
@@ -325,6 +328,7 @@ const App = {
               <p><strong>${expense.description}</strong></p>
               <p>Amount: ${formattedAmount}</p>
               <p>Paid by: ${payerName}</p>
+              <p><small>Added on: ${formattedTimestamp}</small></p>
               <div class="content mt-2">${expenseDetails}</div>
             </div>
             <button class="button is-danger is-small"
