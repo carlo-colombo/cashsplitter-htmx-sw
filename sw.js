@@ -523,8 +523,8 @@ const App = {
                         modal.querySelectorAll('#amount-content input').forEach((input, index) => {
                           const value = parseFloat(input.value) * 100 || 0;
                           if (value > 0) {
-                            event.detail.parameters[`beneficiary_${index}_id`] = index;
-                            event.detail.parameters[`beneficiary_${index}_amount`] = value;
+                            event.detail.parameters['beneficiary_' + index + '_id'] = index;
+                            event.detail.parameters['beneficiary_' + index + '_amount'] = value;
                             total += value;
                           }
                         });
@@ -537,8 +537,8 @@ const App = {
                         modal.querySelectorAll('#percentage-content input').forEach((input, index) => {
                           const value = parseFloat(input.value) || 0;
                           if (value > 0) {
-                            event.detail.parameters[`beneficiary_${index}_id`] = index;
-                            event.detail.parameters[`beneficiary_${index}_amount`] = Math.round(amount * value / 100);
+                            event.detail.parameters['beneficiary_' + index + '_id'] = index;
+                            event.detail.parameters['beneficiary_' + index + '_amount'] = Math.round(amount * value / 100);
                             total += value;
                           }
                         });
@@ -555,8 +555,8 @@ const App = {
                           modal.querySelectorAll('#quote-content input').forEach((input, index) => {
                             const value = parseFloat(input.value) || 0;
                             if (value > 0) {
-                              event.detail.parameters[`beneficiary_${index}_id`] = index;
-                              event.detail.parameters[`beneficiary_${index}_amount`] = Math.round(amount * value / totalShares);
+                              event.detail.parameters['beneficiary_' + index + '_id'] = index;
+                              event.detail.parameters['beneficiary_' + index + '_amount'] = Math.round(amount * value / totalShares);
                             }
                           });
                         }

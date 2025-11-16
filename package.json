@@ -13,6 +13,7 @@
   "devDependencies": {
     "@playwright/test": "^1.56.1",
     "@types/node": "^24.10.1",
-    "http-server": "^14.1.1"
+    "http-server": "^14.1.1",
+    "wait-on": "^8.0.0"
   }
 }
