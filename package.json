@@ -1,0 +1,18 @@
+{
+  "name": "cashsplitter-htmx-sw",
+  "version": "1.0.0",
+  "description": "CashSplitter is a local-first, offline-capable financial ledger application designed for easy expense tracking and splitting among groups. It's built with a \"Zero-Build Stack,\" emphasizing simplicity and modern web standards.",
+  "main": "sw.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {},
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^24.10.1",
+    "http-server": "^14.1.1"
+  }
+}

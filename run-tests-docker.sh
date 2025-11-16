@@ -16,4 +16,4 @@ docker build -t "$IMAGE_NAME:$IMAGE_TAG" .
 # We use --network=host to allow the tests running in the container to access
 # the web server started on localhost.
 echo "Running tests in Docker container..."
-docker run --rm --network=host "$IMAGE_NAME:$IMAGE_TAG" bash -c "nohup python3 -m http.server > server.log 2>&1 & sleep 2 && uv run pytest"
+docker run --rm --network=host "$IMAGE_NAME:$IMAGE_TAG" bash -c "nohup npx http-server . -p 8000 > server.log 2>&1 & sleep 2 && npx playwright test"

@@ -1,15 +1,16 @@
-# Use the official Playwright image with Python
-FROM mcr.microsoft.com/playwright/python:v1.55.0-jammy
+FROM node:20-bookworm
 
-# Set the working directory
 WORKDIR /app
 
-# Install uv
-RUN pip install uv
-
 # Copy dependency files and install dependencies
-COPY pyproject.toml uv.lock ./
-RUN uv sync
+COPY package.json package-lock.json ./
+RUN npm install
+
+# Install Playwright browsers
+RUN npx playwright install --with-deps
 
 # Copy the rest of the application files
 COPY . .
+
+# Command to run the tests
+CMD ["bash", "-c", "nohup npx http-server . -p 8000 > server.log 2>&1 & sleep 2 && npx playwright test"]
