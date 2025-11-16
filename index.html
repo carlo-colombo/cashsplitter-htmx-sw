@@ -129,16 +129,10 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('sw.js', { scope: './' }).then(() => {
-          const isReloaded = sessionStorage.getItem('sw_reloaded');
-          if (!navigator.serviceWorker.controller && !isReloaded) {
-            // On the first load with no active controller, set a flag and reload
-            sessionStorage.setItem('sw_reloaded', 'true');
-            console.log('Reloading to activate service worker...');
-            window.location.reload();
-          } else {
-            // On subsequent loads, the SW should be active. Clean up the flag.
-            sessionStorage.removeItem('sw_reloaded');
-            console.log('Service worker is active or reload has occurred. Loading content.');
+          // The reload logic causes race conditions in Playwright.
+          // We will wait for the controller to be active in the test itself.
+          navigator.serviceWorker.ready.then(() => {
+            console.log('Service worker is ready. Loading content.');
             const urlParams = new URLSearchParams(window.location.search);
             const route = urlParams.get('route');
             const groupId = urlParams.get('id');
@@ -151,10 +145,11 @@
               appContent.dispatchEvent(new Event('load'));
             } else {
               htmx.trigger(document.body, 'load-groups');
-              document.body.dispatchEvent(new CustomEvent('app-ready', { bubbles: true }));
-              document.body.setAttribute('data-app-ready', 'true');
             }
-          }
+            // Signal that the app is ready for tests
+            document.body.dispatchEvent(new CustomEvent('app-ready', { bubbles: true }));
+            document.body.setAttribute('data-app-ready', 'true');
+          });
         }).catch(err => {
             console.error('Service Worker registration failed:', err);
         });
