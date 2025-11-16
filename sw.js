@@ -180,7 +180,8 @@ const App = {
                     id: event.payload.expenseId,
                     description: event.payload.description,
                     amount: event.payload.amount,
-                    payer_id: event.payload.payer
+                    payer_id: event.payload.payer,
+                    beneficiaries: event.payload.beneficiaries
                 });
 
                 for (const posting of event.payload.postings) {
@@ -304,6 +305,19 @@ const App = {
     let expensesHtml = balanceProjection.expenses.map(expense => {
       const payerName = group.members[expense.payer_id];
       const formattedAmount = formatter.format(expense.amount / 100);
+
+      const expenseDetails = expense.beneficiaries.map(beneficiary => {
+        const memberName = group.members[beneficiary.id];
+        const formattedAmount = formatter.format(beneficiary.amount / 100);
+
+        if (beneficiary.id === expense.payer_id) {
+          const isOwed = expense.amount - beneficiary.amount;
+          return `<p class="has-text-success">${memberName} is owed ${formatter.format(isOwed / 100)}</p>`;
+        }
+
+        return `<p class="has-text-danger">${memberName} owes ${formattedAmount}</p>`;
+      }).join('');
+
       return `
         <div class="box">
           <div class="is-flex is-justify-content-space-between">
@@ -311,6 +325,7 @@ const App = {
               <p><strong>${expense.description}</strong></p>
               <p>Amount: ${formattedAmount}</p>
               <p>Paid by: ${payerName}</p>
+              <div class="content mt-2">${expenseDetails}</div>
             </div>
             <button class="button is-danger is-small"
                     hx-delete="/api/groups/${groupId}/expenses/${expense.id}"
