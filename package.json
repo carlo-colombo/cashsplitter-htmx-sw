@@ -6,7 +6,10 @@
   "directories": {
     "test": "tests"
   },
-  "scripts": {},
+  "scripts": {
+    "test:chrome": "npx playwright test --project=\"Google Chrome\" --reporter=list",
+    "test:chrome:headed": "npx playwright test --project=\"Google Chrome\" --headed --report=list"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
