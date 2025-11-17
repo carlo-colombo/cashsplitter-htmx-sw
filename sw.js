@@ -1,6 +1,6 @@
 
 importScripts('https://unpkg.com/dexie@3.2.3/dist/dexie.js');
-import { renderExpenseList } from './src/renderExpenseList.js';
+importScripts('./src/renderExpenseList.js')
 
 const db = new Dexie('LedgerDB');
 
@@ -291,10 +291,6 @@ const App = {
     `).join('');
 
     return `<div id="group-list">${cardsHtml}</div>`;
-  },
-
-  renderExpenseList: async function(groupId) {
-    return renderExpenseList(db, groupId);
   },
 
   renderGroupDetail: async function(groupId) {
@@ -630,7 +626,7 @@ async function handleFragmentRequest(event) {
 
         if (route === 'expense-list') {
             const groupId = url.searchParams.get('id');
-            const fragment = await App.renderExpenseList(groupId);
+            const fragment = await renderExpenseList(db, groupId);
             return new Response(fragment, { headers: { 'Content-Type': 'text/html' } });
         }
 

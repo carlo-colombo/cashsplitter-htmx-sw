@@ -1,4 +1,4 @@
-export async function renderExpenseList(db, groupId) {
+async function renderExpenseList(db, groupId) {
     const groupListProjection = await db.projections.get('group_list');
     const group = groupListProjection.groups[groupId];
     const balanceProjection = await db.projections.get(`group_balances_${groupId}`);
