@@ -9,7 +9,7 @@
   "scripts": {
     "test": "npx playwright test --headed --report=list",  
     "test:chrome": "npx playwright test --project=\"Google Chrome\" --reporter=list",
-    "test:chrome:headed": "npx playwright test --project=\"Google Chrome\" --headed --report=list",
+    "test:chrome:headed": "npx playwright test --project=\"Google Chrome\" --headed --reporter=list",
     "start": "http-server -p 8000"
   },
   "keywords": [],
